@@ -16,6 +16,7 @@ import json
 import os
 
 DATA_FILE = "entry_data.json"
+LOGIN_DATA_FILE = "login_data.json"
 maxneighbornum = 150
 default_scroll_time = 300
 driver = None  # 전역으로 선언해 로그인 후 재사용
@@ -32,6 +33,18 @@ def create_driver():
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     return webdriver.Chrome(options=options)
+
+def save_login_data(user_id, user_pw):
+    data = {"user_id": user_id, "user_pw": user_pw}
+    with open(LOGIN_DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def load_login_data():
+    if os.path.exists(LOGIN_DATA_FILE):
+        with open(LOGIN_DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("user_id", None), data.get("user_pw", None)
+    return None, None
 
 
 def naver_login(driver, user_id, user_pw):
@@ -58,6 +71,8 @@ def login_button_click():
     if not user_id or not user_pw:
         messagebox.showwarning("입력 오류", "아이디와 비밀번호를 모두 입력하세요.")
         return
+
+    save_login_data(user_id, user_pw)
 
     def run_login():
         global driver
@@ -689,13 +704,19 @@ if __name__ == '__main__':
     root = tk.Tk()
     root.title("네이버 자동 머신")
 
+    user_id, user_pw = load_login_data()
+
     tk.Label(root, text="네이버 아이디:").grid(row=0, column=0, padx=10, pady=10)
     entry_id = tk.Entry(root, width=30)
     entry_id.grid(row=0, column=1, padx=10, pady=10)
+    if user_id:
+        entry_id.insert(0, user_id)
 
     tk.Label(root, text="네이버 비밀번호:").grid(row=1, column=0, padx=10, pady=10)
     entry_pw = tk.Entry(root, show="*", width=30)
     entry_pw.grid(row=1, column=1, padx=10, pady=10)
+    if user_pw:
+        entry_pw.insert(0, user_pw)
 
     login_btn = tk.Button(root, text="로그인", command=login_button_click)
     login_btn.grid(row=2, column=0, padx=10, pady=20)
