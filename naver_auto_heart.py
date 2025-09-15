@@ -100,24 +100,31 @@ def show_post_login_ui():
 
 
 def neighborNewFeed(max_pages=50):
-    base_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0&currentPage={}&groupId=0"
+    base_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0¤tPage={}&groupId=0"
     current_page = 1
+    total_liked_count = 0  # 전체 공감 완료 개수 추적
 
     while current_page <= max_pages:
         driver.get(base_url.format(current_page))
+        # 올바른 셀렉터로 수정
         WebDriverWait(driver, 10).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.list_post_article.list_post_article_comments"))
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div[ng-repeat*='buddyPostList']"))
         )
         time.sleep(2)
 
         print(f"=== {current_page} 페이지 처리 시작 ===")
 
-        posts = driver.find_elements(By.CSS_SELECTOR, "div.list_post_article.list_post_article_comments")
+        # 올바른 셀렉터로 수정
+        posts = driver.find_elements(By.CSS_SELECTOR, "div[ng-repeat*='buddyPostList']")
+        print(f"실제 찾은 글 개수: {len(posts)}")
+
         stop_flag = False
         processed_count = 0
 
         for idx, post in enumerate(posts, start=1):
-            if processed_count >= 10:  # 한 페이지에서 10개만
+            print(f"=== {idx}번째 글 처리 시작 (processed_count: {processed_count}) ===")
+            if processed_count >= 10:
+                print("10개 처리 완료로 break")
                 break
 
             try:
@@ -137,6 +144,7 @@ def neighborNewFeed(max_pages=50):
                 driver.execute_script("arguments[0].click();", icons_btn)
                 print(f"[{current_page}페이지 {idx}번째] 공감 아이콘 클릭하여 레이어 열기")
 
+                # 나머지 코드는 동일...
                 # 레이어가 열릴 때까지 대기
                 WebDriverWait(post, 5).until(
                     lambda p: "display: block" in p.find_element(
@@ -162,15 +170,16 @@ def neighborNewFeed(max_pages=50):
                     reaction_type, target_button = random.choice(reaction_buttons)
                     driver.execute_script("arguments[0].click();", target_button)
                     print(f"[{current_page}페이지 {idx}번째] 공감 클릭 성공 → {reaction_type}")
+                    total_liked_count += 1  # 공감 성공 시 카운트 증가
 
                     # 대기
-                    sleep_time = random.randint(1, 5)
+                    sleep_time = random.randint(3, 5)
                     print(f"  → {sleep_time}초 대기...")
                     time.sleep(sleep_time)
                 else:
                     print(f"[{current_page}페이지 {idx}번째] 공감 버튼 없음 (카운트만 증가)")
 
-                # 버튼 있든 없든 카운트 증가
+                # 버튼 있든 없든 처리한 글 카운트 증가
                 processed_count += 1
 
             except Exception as e:
@@ -179,7 +188,7 @@ def neighborNewFeed(max_pages=50):
                 processed_count += 1
                 continue
 
-        print(f"[{current_page}페이지] 총 {processed_count}개 처리 완료")
+        print(f"[{current_page}페이지] 총 {processed_count}개 처리 완료 (공감 성공: {total_liked_count}개)")
 
         if stop_flag:
             print("이미 공감한 글 발견으로 종료")
@@ -188,18 +197,42 @@ def neighborNewFeed(max_pages=50):
         # 다음 페이지 이동
         current_page += 1
         if current_page <= max_pages:
-            sleep_time = random.randint(5, 15)
+            sleep_time = random.randint(10, 15)
             print(f"=== 다음 페이지({current_page})로 이동 전 {sleep_time}초 대기 ===")
             time.sleep(sleep_time)
         else:
             print("최대 페이지 수에 도달하여 종료")
             break
 
-    print("neighborNewFeed 종료")
+    print(f"neighborNewFeed 종료 - 총 {total_liked_count}개 글에 공감 완료")
+    return total_liked_count  # 총 공감 개수 반환
 
 
+def debug_selectors():
+    driver.get("https://section.blog.naver.com/BlogHome.naver?directoryNo=0&currentPage=1&groupId=0")
+    time.sleep(5)  # 충분한 로딩 시간
 
+    # 다양한 셀렉터들 시도
+    selectors_to_try = [
+        "div.item_multi_pic",
+        "div.list_post_article",
+        "div[ng-repeat*='post']",
+        "div[ng-repeat*='buddyPostList']",
+        ".item_multi_pic",
+        "[ng-repeat]",
+        "div[class*='item']",
+        "div[class*='post']"
+    ]
 
+    for selector in selectors_to_try:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            print(f"셀렉터 '{selector}': {len(elements)}개 발견")
+            if elements and len(elements) > 0:
+                print(f"  첫 번째 요소의 클래스: {elements[0].get_attribute('class')}")
+                print(f"  첫 번째 요소의 HTML (앞 200자): {elements[0].get_attribute('outerHTML')[:200]}...")
+        except Exception as e:
+            print(f"셀렉터 '{selector}': 에러 - {e}")
 
 
 def btn_neighbor_blog_click():
@@ -218,10 +251,14 @@ def btn_neighbor_blog_click():
     progress_bar.pack(padx=20, pady=20)
 
     def task():
+        total_liked_count = 0
         try:
-            neighborNewFeed()
+            total_liked_count = neighborNewFeed()
         finally:
-            pass
+            # progress 창 닫기
+            progress_win.destroy()
+            # 완료 알림 띄우기
+            messagebox.showinfo("완료", f"총 {total_liked_count}개의 글에 공감을 완료했습니다!")
 
     threading.Thread(target=task).start()
 
@@ -355,19 +392,19 @@ def start_blog_processing(blog_items, comment_texts, use_comments):
 
                 time.sleep(random.randint(5, 15))
 
-                # 2) 댓글 작성 (체크박스가 활성화된 경우에만)
-                comment_success = False
-                if use_comments and like_success:
-                    comment_success = process_comment(driver, url, comment_texts)
-
-                if like_success or comment_success:
-                    success_count += 1
-                    print(f"블로그 처리 완료 - 공감: {like_success}, 댓글: {comment_success}")
-                else:
-                    print("블로그 처리 실패")
-
-                # 다음 블로그 처리 전 대기
-                time.sleep(random.randint(5, 10))
+                # # 2) 댓글 작성 (체크박스가 활성화된 경우에만)
+                # comment_success = False
+                # if use_comments and like_success:
+                #     comment_success = process_comment(driver, url, comment_texts)
+                #
+                # if like_success or comment_success:
+                #     success_count += 1
+                #     print(f"블로그 처리 완료 - 공감: {like_success}, 댓글: {comment_success}")
+                # else:
+                #     print("블로그 처리 실패")
+                #
+                # # 다음 블로그 처리 전 대기
+                # time.sleep(random.randint(5, 10))
 
             except Exception as e:
                 print(f"블로그 처리 중 오류 ({url}): {e}")
@@ -382,6 +419,149 @@ def start_blog_processing(blog_items, comment_texts, use_comments):
     # 백그라운드에서 처리
     threading.Thread(target=process_blogs).start()
 
+    def click_like_button_original(driver, url):
+        try:
+            driver.get(url)
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            time.sleep(random.randint(3, 6))
+
+            # 1) 여러 방법으로 공감 버튼 클릭 시도
+            like_clicked = False
+
+            # 방법 1: 직접 클릭
+            try:
+                like_area = driver.find_element(By.CSS_SELECTOR, "span.u_likeit_icons._icons")
+                ActionChains(driver).move_to_element(like_area).click().perform()
+                like_clicked = True
+                print("공감 버튼 클릭 성공 (ActionChains)")
+            except Exception as e:
+                print(f"ActionChains 클릭 실패: {e}")
+
+            # 방법 2: JavaScript 클릭 (방법 1이 실패한 경우)
+            if not like_clicked:
+                try:
+                    like_area = driver.find_element(By.CSS_SELECTOR, "span.u_likeit_icons._icons")
+                    driver.execute_script("arguments[0].click();", like_area)
+                    like_clicked = True
+                    print("공감 버튼 클릭 성공 (JS 클릭)")
+                except Exception as e:
+                    print(f"JS 클릭 실패: {e}")
+
+            # 방법 3: 마우스 이벤트 직접 발생
+            if not like_clicked:
+                try:
+                    like_area = driver.find_element(By.CSS_SELECTOR, "span.u_likeit_icons._icons")
+                    driver.execute_script("""
+                        var element = arguments[0];
+                        var rect = element.getBoundingClientRect();
+                        var event = new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: rect.left + rect.width/2,
+                            clientY: rect.top + rect.height/2
+                        });
+                        element.dispatchEvent(event);
+                    """, like_area)
+                    like_clicked = True
+                    print("공감 버튼 클릭 성공 (마우스 이벤트)")
+                except Exception as e:
+                    print(f"마우스 이벤트 실패: {e}")
+
+            if not like_clicked:
+                print("모든 클릭 방법 실패")
+                return False
+
+            # 2) 레이어가 열릴 때까지 더 유연하게 대기
+            time.sleep(1)  # 짧은 대기
+
+            # 레이어 상태 확인을 위한 여러 방법
+            layer_opened = False
+
+            # 방법 1: display 스타일 확인
+            try:
+                layer = WebDriverWait(driver, 3).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer"))
+                )
+                style = layer.get_attribute("style")
+                if "display: block" in style or "display:block" in style:
+                    layer_opened = True
+                    print("레이어 열림 확인 (display: block)")
+            except:
+                pass
+
+            # 방법 2: 가시성 확인
+            if not layer_opened:
+                try:
+                    layer = driver.find_element(By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer")
+                    if layer.is_displayed():
+                        layer_opened = True
+                        print("레이어 열림 확인 (is_displayed)")
+                except:
+                    pass
+
+            # 방법 3: 자식 요소들이 보이는지 확인
+            if not layer_opened:
+                try:
+                    reaction_buttons = WebDriverWait(driver, 3).until(
+                        EC.presence_of_all_elements_located(
+                            (By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer li.u_likeit_list a"))
+                    )
+                    if len(reaction_buttons) > 0 and reaction_buttons[0].is_displayed():
+                        layer_opened = True
+                        print("레이어 열림 확인 (버튼 가시성)")
+                except:
+                    pass
+
+            if not layer_opened:
+                print("공감 레이어가 열리지 않음")
+                # 디버깅: 현재 레이어 상태 출력
+                try:
+                    layer = driver.find_element(By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer")
+                    print(f"레이어 스타일: {layer.get_attribute('style')}")
+                    print(f"레이어 표시 상태: {layer.is_displayed()}")
+                except Exception as e:
+                    print(f"레이어 상태 확인 실패: {e}")
+                return False
+
+            # 3) 공감 버튼들 찾기 및 클릭
+            try:
+                reaction_buttons = driver.find_elements(
+                    By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer li.u_likeit_list a"
+                )
+
+                if not reaction_buttons:
+                    print("공감 버튼들을 찾을 수 없음")
+                    return False
+
+                # 상위 3개 버튼 중 랜덤 선택
+                available_buttons = [btn for btn in reaction_buttons[:3] if btn.is_displayed()]
+
+                if not available_buttons:
+                    print("표시된 공감 버튼이 없음")
+                    return False
+
+                target = random.choice(available_buttons)
+
+                # 버튼 클릭 시도
+                try:
+                    ActionChains(driver).move_to_element(target).click().perform()
+                    print("공감 표현 성공 (ActionChains):", target.get_attribute("data-type") or target.get_attribute("role"))
+                except:
+                    driver.execute_script("arguments[0].click();", target)
+                    print("공감 표현 성공 (JS):", target.get_attribute("data-type") or target.get_attribute("role"))
+
+                time.sleep(1)  # 클릭 후 짧은 대기
+                return True
+
+            except Exception as e:
+                print(f"공감 버튼 클릭 오류: {e}")
+                return False
+
+        except Exception as e:
+            print(f"전체 공감 처리 오류: {e}")
+            return False
+
 
 def reset_to_login_ui():
     """모든 위젯 파괴 후 초기 로그인 UI 복원, show_post_login_ui 호출"""
@@ -390,177 +570,10 @@ def reset_to_login_ui():
     for widget in root.winfo_children():
         widget.destroy()
 
-    btn_neighbor_blog = tk.Button(root, text="블로그 확인", command=btn_neighbor_blog_click)
+    btn_neighbor_blog = tk.Button(root, text="공감 시작", command=btn_neighbor_blog_click)
     btn_neighbor_blog.grid(row=3, column=0, padx=10, pady=10)
 
 
-# def like_all_blogs_with_progress(blog_items, win, label, bar):
-#     total = len(blog_items)
-#     bar['maximum'] = total
-#
-#     def task():
-#         for idx, (title, url) in enumerate(blog_items, start=1):
-#             if not url:
-#                 continue
-#             try:
-#
-#
-#             except Exception as e:
-#                 print(f"오류 발생 ({url}): {e}")
-#
-#             # 진행 상황 업데이트는 메인 스레드에서 실행
-#             root.after(0, lambda i=idx: label.config(text=f"진행 중: {i}/{total} 개"))
-#             root.after(0, lambda i=idx: bar.config(value=i))
-#
-#         # 완료 메시지도 메인 스레드에서
-#         root.after(0, lambda: messagebox.showinfo("완료", "모든 블로그 공감 완료!"))
-#         root.after(0, win.destroy)
-#
-#     threading.Thread(target=task).start()
-
-
-def click_like_button_original(driver, url):
-    try:
-        driver.get(url)
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        time.sleep(random.randint(3, 6))
-
-        # 1) 여러 방법으로 공감 버튼 클릭 시도
-        like_clicked = False
-
-        # 방법 1: 직접 클릭
-        try:
-            like_area = driver.find_element(By.CSS_SELECTOR, "span.u_likeit_icons._icons")
-            ActionChains(driver).move_to_element(like_area).click().perform()
-            like_clicked = True
-            print("공감 버튼 클릭 성공 (ActionChains)")
-        except Exception as e:
-            print(f"ActionChains 클릭 실패: {e}")
-
-        # 방법 2: JavaScript 클릭 (방법 1이 실패한 경우)
-        if not like_clicked:
-            try:
-                like_area = driver.find_element(By.CSS_SELECTOR, "span.u_likeit_icons._icons")
-                driver.execute_script("arguments[0].click();", like_area)
-                like_clicked = True
-                print("공감 버튼 클릭 성공 (JS 클릭)")
-            except Exception as e:
-                print(f"JS 클릭 실패: {e}")
-
-        # 방법 3: 마우스 이벤트 직접 발생
-        if not like_clicked:
-            try:
-                like_area = driver.find_element(By.CSS_SELECTOR, "span.u_likeit_icons._icons")
-                driver.execute_script("""
-                    var element = arguments[0];
-                    var rect = element.getBoundingClientRect();
-                    var event = new MouseEvent('click', {
-                        view: window,
-                        bubbles: true,
-                        cancelable: true,
-                        clientX: rect.left + rect.width/2,
-                        clientY: rect.top + rect.height/2
-                    });
-                    element.dispatchEvent(event);
-                """, like_area)
-                like_clicked = True
-                print("공감 버튼 클릭 성공 (마우스 이벤트)")
-            except Exception as e:
-                print(f"마우스 이벤트 실패: {e}")
-
-        if not like_clicked:
-            print("모든 클릭 방법 실패")
-            return False
-
-        # 2) 레이어가 열릴 때까지 더 유연하게 대기
-        time.sleep(1)  # 짧은 대기
-
-        # 레이어 상태 확인을 위한 여러 방법
-        layer_opened = False
-
-        # 방법 1: display 스타일 확인
-        try:
-            layer = WebDriverWait(driver, 3).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer"))
-            )
-            style = layer.get_attribute("style")
-            if "display: block" in style or "display:block" in style:
-                layer_opened = True
-                print("레이어 열림 확인 (display: block)")
-        except:
-            pass
-
-        # 방법 2: 가시성 확인
-        if not layer_opened:
-            try:
-                layer = driver.find_element(By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer")
-                if layer.is_displayed():
-                    layer_opened = True
-                    print("레이어 열림 확인 (is_displayed)")
-            except:
-                pass
-
-        # 방법 3: 자식 요소들이 보이는지 확인
-        if not layer_opened:
-            try:
-                reaction_buttons = WebDriverWait(driver, 3).until(
-                    EC.presence_of_all_elements_located(
-                        (By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer li.u_likeit_list a"))
-                )
-                if len(reaction_buttons) > 0 and reaction_buttons[0].is_displayed():
-                    layer_opened = True
-                    print("레이어 열림 확인 (버튼 가시성)")
-            except:
-                pass
-
-        if not layer_opened:
-            print("공감 레이어가 열리지 않음")
-            # 디버깅: 현재 레이어 상태 출력
-            try:
-                layer = driver.find_element(By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer")
-                print(f"레이어 스타일: {layer.get_attribute('style')}")
-                print(f"레이어 표시 상태: {layer.is_displayed()}")
-            except Exception as e:
-                print(f"레이어 상태 확인 실패: {e}")
-            return False
-
-        # 3) 공감 버튼들 찾기 및 클릭
-        try:
-            reaction_buttons = driver.find_elements(
-                By.CSS_SELECTOR, "ul.u_likeit_layer_faceLayer li.u_likeit_list a"
-            )
-
-            if not reaction_buttons:
-                print("공감 버튼들을 찾을 수 없음")
-                return False
-
-            # 상위 3개 버튼 중 랜덤 선택
-            available_buttons = [btn for btn in reaction_buttons[:3] if btn.is_displayed()]
-
-            if not available_buttons:
-                print("표시된 공감 버튼이 없음")
-                return False
-
-            target = random.choice(available_buttons)
-
-            # 버튼 클릭 시도
-            try:
-                ActionChains(driver).move_to_element(target).click().perform()
-                print("공감 표현 성공 (ActionChains):", target.get_attribute("data-type") or target.get_attribute("role"))
-            except:
-                driver.execute_script("arguments[0].click();", target)
-                print("공감 표현 성공 (JS):", target.get_attribute("data-type") or target.get_attribute("role"))
-
-            time.sleep(1)  # 클릭 후 짧은 대기
-            return True
-
-        except Exception as e:
-            print(f"공감 버튼 클릭 오류: {e}")
-            return False
-
-    except Exception as e:
-        print(f"전체 공감 처리 오류: {e}")
-        return False
 
 
 # 추가: 디버깅용 함수
@@ -908,7 +921,7 @@ if __name__ == '__main__':
     label_info = tk.Label(root, text="아이디와 비밀번호를 입력하고 로그인하세요.")
     label_info.grid(row=4, column=0, columnspan=2, pady=10)
 
-    btn_neighbor_blog = tk.Button(root, text="블로그 확인", command=btn_neighbor_blog_click)
+    btn_neighbor_blog = tk.Button(root, text="공감 시작", command=btn_neighbor_blog_click)
     btn_neighbor_blog.grid_remove()
 
     root.mainloop()
