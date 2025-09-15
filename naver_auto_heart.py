@@ -100,7 +100,7 @@ def show_post_login_ui():
 
 
 def neighborNewFeed(max_pages=50):
-    base_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0¤tPage={}&groupId=0"
+    base_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0currentPage%3D2&currentPage={}&groupId=0"
     current_page = 1
     total_liked_count = 0  # 전체 공감 완료 개수 추적
 
