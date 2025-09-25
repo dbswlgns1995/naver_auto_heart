@@ -15,12 +15,14 @@ import tkinter.ttk as ttk
 import random
 import json
 import os
+from collections import deque
 
 DATA_FILE = "entry_data.json"
 LOGIN_DATA_FILE = "login_data.json"
 maxneighbornum = 150
 default_scroll_time = 300
 driver = None  # 전역으로 선언해 로그인 후 재사용
+recent_liked_urls = deque(maxlen=20)
 
 
 def create_driver():
@@ -99,8 +101,14 @@ def show_post_login_ui():
     btn_neighbor_blog.grid(row=3, column=0, padx=10, pady=10)
 
 
-def neighborNewFeed(max_pages=50):
-    base_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0currentPage%3D2&currentPage={}&groupId=0"
+from collections import deque
+
+# 전역 변수로 최근 공감한 글들의 URL을 저장 (최대 20개, 최신순)
+recent_liked_urls = deque(maxlen=20)
+
+
+def neighborNewFeed(max_pages=300):
+    base_url = "https://section.blog.naver.com/BlogHome.naver?directoryNo=0&currentPage={}&groupId=1"
     current_page = 1
     total_liked_count = 0  # 전체 공감 완료 개수 추적
 
@@ -120,6 +128,7 @@ def neighborNewFeed(max_pages=50):
 
         stop_flag = False
         processed_count = 0
+        page_all_already_liked = True  # 이 페이지의 모든 글이 이미 공감된 상태인지 확인
 
         for idx, post in enumerate(posts, start=1):
             print(f"=== {idx}번째 글 처리 시작 (processed_count: {processed_count}) ===")
@@ -128,58 +137,80 @@ def neighborNewFeed(max_pages=50):
                 break
 
             try:
+                # 글의 URL 추출
+                post_url = None
+                try:
+                    url_element = post.find_element(By.CSS_SELECTOR, "a.desc_inner")
+                    post_url = url_element.get_attribute("href")
+                    print(f"[{current_page}페이지 {idx}번째] 글 URL: {post_url}")
+                except:
+                    print(f"[{current_page}페이지 {idx}번째] URL을 찾을 수 없음")
+
                 # 좋아요 버튼 상태 확인
                 like_btn = post.find_element(By.CSS_SELECTOR, "a.u_likeit_button._face")
                 pressed = like_btn.get_attribute("aria-pressed")
 
                 if pressed == "true":
-                    print(f"[{current_page}페이지 {idx}번째] 이미 눌린 글 발견 → 전체 종료")
-                    stop_flag = True
-                    break
+                    # 이미 공감된 글인 경우
+                    if post_url and post_url in recent_liked_urls:
+                        # 최근에 내가 공감한 글이라면 넘어가기
+                        print(f"[{current_page}페이지 {idx}번째] 최근에 공감한 글 → 넘어가기")
+                        processed_count += 1
+                        continue
+                    else:
+                        # 내가 공감하지 않은 오래된 글이라면 종료
+                        print(f"[{current_page}페이지 {idx}번째] 이전에 공감한 오래된 글 발견 → 전체 종료")
+                        stop_flag = True
+                        break
+                else:
+                    # 아직 공감하지 않은 글이므로 페이지에 새로운 글이 있음
+                    page_all_already_liked = False
 
-                # 아이콘 클릭해서 레이어 열기
-                icons_btn = post.find_element(By.CSS_SELECTOR, "span.u_likeit_icons._icons")
-                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", icons_btn)
+                # 공감 버튼 바로 클릭
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", like_btn)
                 time.sleep(0.5)
-                driver.execute_script("arguments[0].click();", icons_btn)
-                print(f"[{current_page}페이지 {idx}번째] 공감 아이콘 클릭하여 레이어 열기")
 
-                # 나머지 코드는 동일...
-                # 레이어가 열릴 때까지 대기
-                WebDriverWait(post, 5).until(
-                    lambda p: "display: block" in p.find_element(
-                        By.CSS_SELECTOR, "ul.u_likeit_layer._faceLayer"
-                    ).get_attribute("style")
-                )
+                try:
+                    print(f"[{current_page}페이지 {idx}번째] 공감 버튼 클릭 시도")
+                    click_success = False
 
-                # 가능한 버튼 모으기
-                reaction_buttons = []
-                for selector, rtype in [
-                    ("li.u_likeit_list.like a", "like"),
-                    ("li.u_likeit_list.impressive a", "impressive"),
-                    ("li.u_likeit_list.thanks a", "thanks")
-                ]:
-                    try:
-                        btn = post.find_element(By.CSS_SELECTOR, selector)
-                        reaction_buttons.append((rtype, btn))
-                    except:
-                        pass
+                    if not click_success:
+                        try:
+                            # 방법 2: 일반 클릭
+                            like_btn.click()
+                            time.sleep(1)
+                            if like_btn.get_attribute("aria-pressed") == "true":
+                                click_success = True
+                                print("  → 일반 클릭 성공")
+                        except:
+                            pass
 
-                if reaction_buttons:
-                    # 랜덤 클릭
-                    reaction_type, target_button = random.choice(reaction_buttons)
-                    driver.execute_script("arguments[0].click();", target_button)
-                    print(f"[{current_page}페이지 {idx}번째] 공감 클릭 성공 → {reaction_type}")
-                    total_liked_count += 1  # 공감 성공 시 카운트 증가
+                    # 클릭 후 상태 확인
+                    time.sleep(1)
+                    updated_pressed = like_btn.get_attribute("aria-pressed")
+
+                    # 공감 성공 여부 판단
+                    if click_success and updated_pressed == "true":
+                        print(f"[{current_page}페이지 {idx}번째] 공감 성공!")
+                        total_liked_count += 1  # 공감 성공 시 카운트 증가
+
+                        # 공감한 글의 URL을 리스트에 저장
+                        if post_url:
+                            recent_liked_urls.append(post_url)
+                            print(f"  → URL 저장완료 (총 {len(recent_liked_urls)}개 저장됨)")
+                    else:
+                        print(f"[{current_page}페이지 {idx}번째] 공감 실패 (상태 변화 없음)")
+                        print(f"  → aria-pressed: {updated_pressed}")
 
                     # 대기
                     sleep_time = random.randint(3, 5)
                     print(f"  → {sleep_time}초 대기...")
                     time.sleep(sleep_time)
-                else:
-                    print(f"[{current_page}페이지 {idx}번째] 공감 버튼 없음 (카운트만 증가)")
 
-                # 버튼 있든 없든 처리한 글 카운트 증가
+                except Exception as click_error:
+                    print(f"[{current_page}페이지 {idx}번째] 공감 버튼 클릭 실패: {click_error}")
+
+                # 처리한 글 카운트 증가
                 processed_count += 1
 
             except Exception as e:
@@ -189,9 +220,10 @@ def neighborNewFeed(max_pages=50):
                 continue
 
         print(f"[{current_page}페이지] 총 {processed_count}개 처리 완료 (공감 성공: {total_liked_count}개)")
+        print(f"현재 저장된 URL 개수: {len(recent_liked_urls)}")
 
         if stop_flag:
-            print("이미 공감한 글 발견으로 종료")
+            print("이전에 공감한 오래된 글 발견으로 종료")
             break
 
         # 다음 페이지 이동
@@ -205,7 +237,18 @@ def neighborNewFeed(max_pages=50):
             break
 
     print(f"neighborNewFeed 종료 - 총 {total_liked_count}개 글에 공감 완료")
+    print(f"최근 공감한 URL 목록 ({len(recent_liked_urls)}개):")
+    for i, url in enumerate(list(recent_liked_urls)[-5:], 1):  # 최근 5개만 출력
+        print(f"  {i}. {url}")
+
     return total_liked_count  # 총 공감 개수 반환
+
+
+def clear_recent_liked_urls():
+    """저장된 URL 목록을 초기화하는 함수 (필요시 사용)"""
+    global recent_liked_urls
+    recent_liked_urls.clear()
+    print("저장된 URL 목록이 초기화되었습니다.")
 
 
 def debug_selectors():
